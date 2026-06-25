@@ -9,6 +9,9 @@ wav_aud/
 concat.txt
 meta.txt
 
+# Reference / scratch audio (voice samples etc. — not part of the pipeline)
+_resources/
+
 # OS / tooling cruft
 .DS_Store
 .omc/
