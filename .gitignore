@@ -1,9 +1,8 @@
 # Generated audio — large and regenerable from the scripts + chapter text
 *.wav
 *.m4b
-wav/
-wav_fixed/
-wav_aud/
+wav*/
+exp/
 
 # ffmpeg concat / metadata scratch
 concat.txt

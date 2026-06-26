@@ -11,12 +11,13 @@ Usage:  python3 build_ch02_fixed.py --dry     # print sentence split only
 """
 import subprocess, os, re, sys
 
-VOICE    = "bm_george"
+VOICE    = "bm_daniel"
+METHOD   = "synthesize"  # ponytail: was 'infinite' — its streaming step mangled long-sentence endings; 'synthesize' is clean
 SENT_GAP = 0.45   # ponytail: tune to taste — pause between sentences in a paragraph
-PARA_GAP = 0.60   # ponytail: tune to taste — pause between paragraphs
+PARA_GAP = 0.85   # ponytail: Johan wanted longer para gaps (most paragraphs end on a George quote)
 SR       = 24000
-OUT      = "ch02_flow_fixed.wav"
-CACHE    = "wav_fixed"
+OUT      = f"ch02_{VOICE}_{METHOD}.wav"   # keyed by voice+method so the cache can't serve stale audio
+CACHE    = f"wav_{VOICE}_{METHOD}"
 DRY      = "--dry" in sys.argv
 
 def split_paras(path):
@@ -57,7 +58,7 @@ if DRY:
     sys.exit(0)
 
 os.makedirs(CACHE, exist_ok=True)
-def run(cmd): subprocess.run(cmd, check=True, capture_output=True, text=True)
+def run(cmd, **kw): subprocess.run(cmd, check=True, capture_output=True, text=True, **kw)
 def make_sil(path, sec):
     if not os.path.exists(path):
         run(["ffmpeg","-y","-f","lavfi","-i",f"anullsrc=r={SR}:cl=mono","-t",str(sec),"-c:a","pcm_s16le",path])
@@ -66,9 +67,8 @@ concat = open(f"{CACHE}/concat.txt", "w")
 for n, (s, g) in enumerate(units):
     wav = f"{CACHE}/s{n:03d}.wav"
     if not os.path.exists(wav):
-        tmp = f"{CACHE}/s{n:03d}.txt"; open(tmp, "w").write(s + "\n")
         print(f">> sentence {n+1}/{len(units)}")
-        run(["kokoro-tts-tool","infinite","--input",tmp,"--output",wav,"--voice",VOICE,"--no-markdown"])
+        run(["kokoro-tts-tool","synthesize","--stdin","--output",wav,"--voice",VOICE], input=s + "\n")
         norm = wav + ".n.wav"
         run(["ffmpeg","-y","-i",wav,"-ar",str(SR),"-ac","1","-c:a","pcm_s16le",norm]); os.replace(norm, wav)
     concat.write(f"file '{os.path.abspath(wav)}'\n")

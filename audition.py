@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Voice audition: the 3 ch02 problem sentences in each British male voice.
-Output: audition_<voice>.wav  (one per voice, 3 sentences + 0.45s gaps)."""
+"""Voice audition: the 3 ch02 problem sentences in each British voice (male + female).
+Output: audition_<voice>.wav  (one per voice, 3 sentences + 0.45s gaps).
+Per-sentence WAVs are cached in wav_aud/, so re-running only synthesizes new voices."""
 import subprocess, os
 
-VOICES = ["bm_george", "bm_fable", "bm_lewis", "bm_daniel"]
+VOICES = ["bm_george", "bm_fable", "bm_lewis", "bm_daniel",
+          "bf_alice", "bf_emma", "bf_isabella", "bf_lily"]
 GAP = 0.45
 SR = 24000
 SENTS = [
