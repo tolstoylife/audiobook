@@ -2,10 +2,10 @@
 """
 Build the full chaptered, mastered M4B of "A Great Iniquity".
 
-Pipeline proved out on ch02 (see HANDOFF-audiobook.txt):
+Pipeline and findings: README.md (this folder) and ../../docs/audiobook-pipeline.md.
   - voice bm_daniel, synthesized PER SENTENCE via `synthesize`
-    (NOT `infinite` — its streaming step mangled long-sentence endings;
-     see exp_synth_vs_infinite.py for the A/B that settled this)
+    (NOT `infinite` — its streaming step mangled long-sentence endings; an A/B
+     on ch02 confirmed `synthesize` lands sentence endings cleanly)
   - sentence / paragraph / chapter pauses, mastered, chapter markers,
     M4B muxed with +faststart (iOS Books refuses the file without it)
 
