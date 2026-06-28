@@ -27,8 +27,9 @@ python3 build_audiobook.py --dry      # show chapter/sentence structure, no audi
 # Audition voices on the 3 hardest sentences  ->  audition_<voice>.wav
 python3 audition.py
 
-# Reshape punctuation for better phrasing  (chapters/ -> chapters_flow/)
-python3 flow_preprocess.py
+# Reshape punctuation + split over-long sentences  (chapters/ -> chapters_flow/)
+# The build reads chapters_flow/, so regenerate it with --split-long after editing chapters/.
+python3 flow_preprocess.py --split-long 45
 ```
 
 Requires `kokoro-tts-tool`, `ffmpeg`, `ffprobe` (and `espeak-ng`). The build
@@ -60,9 +61,11 @@ scripts + chapter text.
 - **Semicolons.** The build narrates `chapters_flow/` (George's semicolons
   rewritten to periods/commas). Now that phrasing is good, worth testing whether
   we can narrate the original text (semicolons intact) and retire that step.
-- **Short-sentence pitch wobble** — a minor Kokoro trait; possibly soften by not
-  synthesizing very short sentences alone.
-- **Proper-noun pronunciation** not yet validated (Yasnaya Polyana, Novikoff…).
+- ~~**Short-sentence pitch wobble**~~ — done: the build merges very short
+  sentences (and Part headers) into a neighbour so they don't get synthesized
+  alone. See `merge_short` in `build_audiobook.py`.
+- ~~**Proper-noun pronunciation**~~ — done by ear for the names that fumbled
+  (Labouchère, Radischeff, Yasnaya Poliana) via the `SUBS` dict in the build.
 - **Nightly pipeline** for the whole corpus: hash each work, regenerate only on
   change, Whisper transcript check, output to `_generated/audio/<work>.m4b`.
 - **Read-along** (synced text+audio) — see [IDEAS.md](IDEAS.md).

@@ -23,6 +23,7 @@ DRY      = "--dry" in sys.argv
 SENT_GAP = 0.45   # pause between sentences within a paragraph
 PARA_GAP = 0.85   # pause between paragraphs (most end on a George quote — Johan wanted longer)
 CHAP_GAP = 2.0    # pause between Parts (research: section breaks ~2–2.5s; clearly > paragraph)
+SHORT_WORDS = 4   # merge sentences this short into a neighbour — a tiny clip synthesized alone rises instead of falling
 BITRATE  = "128k"
 SR       = 24000  # Kokoro's native rate
 OUT      = f"a_great_iniquity_{VOICE}.m4b"
@@ -34,6 +35,20 @@ TITLES = ["Introduction","Part I","Part II","Part III","Part IV",
           "Part V","Part VI","Part VII","Part VIII","Part IX"]  # M4B chapter list (Roman reads better visually)
 ROMAN  = {"I":"One","II":"Two","III":"Three","IV":"Four","V":"Five",
           "VI":"Six","VII":"Seven","VIII":"Eight","IX":"Nine"}
+
+# Pronunciation respellings for Kokoro's g2p — source text stays faithful, we fix at synth time.
+SUBS = [
+    (r"\blive\b", "liv"),                  # Kokoro says /laɪv/ for the verb
+    (r"\bLabouchere\b", "Labooshair"),     # the MP Henry Labouchère
+    (r"\bRadischeff\b", "Rahdeeshef"),     # Radishchev
+    (r"Yasnaya Poliana", "Yasnaya Polyahna"),
+    (r"\(Matt[.,] xxiii\. 27, 28\)",
+     "Matthew twenty-three, verses twenty-seven and twenty-eight"),  # spoken scripture reference
+]
+def respell(t):
+    for pat, rep in SUBS:
+        t = re.sub(pat, rep, t)
+    return t
 
 def split_paras(text):
     return [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
@@ -59,14 +74,34 @@ def split_sents(text):
     parts = re.split(r'(?<=[.!?"])\s+(?=["“(A-Z])', text)  # end-punct (+quote) then Cap/quote/paren
     return [p.replace("<DOT>", ".").strip() for p in parts if p.strip()]
 
+def merge_short(units):
+    # A 2–4 word clip synthesized alone rises instead of falling. Glue each short unit
+    # forward into the next so Kokoro has runway to land the cadence — this also folds
+    # "Part One." into the first sentence of the chapter. Last unit merges backward.
+    units = list(units)
+    i = 0
+    while i < len(units) - 1:
+        text, gap = units[i]
+        if len(text.split()) <= SHORT_WORDS:
+            nt, ng = units[i + 1]
+            units[i] = (text + " " + nt, ng)   # take the follower's gap; the short clip's own gap dissolves
+            del units[i + 1]
+        else:
+            i += 1
+    if len(units) >= 2 and len(units[-1][0].split()) <= SHORT_WORDS:
+        (t0, _), (t1, g1) = units[-2], units[-1]
+        units[-2:] = [(t0 + " " + t1, g1)]
+    return units
+
 def units_for(path):
     paras = join_midsentence(split_paras(open(path).read()))
-    paras = [re.sub(r"\blive\b", "liv", spoken_header(p)) for p in paras]  # Kokoro says /laɪv/ for the verb
+    paras = [respell(spoken_header(p)) for p in paras]
     units = []  # (text, gap_after)
     for p in paras:
         sents = split_sents(p)
         for si, s in enumerate(sents):
             units.append((s, PARA_GAP if si == len(sents) - 1 else SENT_GAP))
+    units = merge_short(units)
     if units:
         units[-1] = (units[-1][0], 0.0)  # chapter gap (or EOF) handles the trailing pause
     return units
