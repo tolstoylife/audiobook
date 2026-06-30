@@ -97,9 +97,11 @@ def synth_clip(clip):
     return wav
 
 def main():
+    # The reader bundle's build/ folder is the contract: segments.json comes in,
+    # timing.json + per-section audio land beside it (so audio → <bundle>/build/audio/).
     seg_path = os.environ.get("SEG_JSON",
-        "../../_generated/reader/the-great-sin/segments.en-1905.json")
-    out_dir   = "../../_generated/reader/the-great-sin"
+        "../../docs/reader/non-fiction/essays-and-criticism/the-great-sin/build/segments.en-1905.json")
+    out_dir   = os.path.dirname(os.path.abspath(seg_path))   # the bundle's build/ dir
     audio_dir = f"{out_dir}/audio"
     timing_path = f"{out_dir}/timing.{json.load(open(seg_path, encoding='utf-8'))['version']}.json"
 
