@@ -8,8 +8,13 @@ Everything runs locally on the Mac (no API keys, no cloud): Kokoro TTS + ffmpeg.
 
 ## Status
 
-- **A Great Iniquity is done.** `a_great_iniquity_bm_daniel.m4b` — 54:45, 10
-  chapters, mastered, imports into Apple Books.
+- **A Great Iniquity's read-along audio is live** in the reader bundle
+  (`docs/reader/non-fiction/essays-and-criticism/the-great-sin/build/`) — 10
+  sections, mastered, synced via `timing.en-1905.json`. The `.m4b` in this
+  folder (`a_great_iniquity_bm_daniel.m4b`, 54:45) is a snapshot from the
+  first pilot build; the current build no longer produces an `.m4b` at all
+  (see "How to run" below), so treat that file as a point-in-time export, not
+  a live artifact.
 - The core question is settled: **Kokoro is good enough** for publication
   quality. No heavier model needed.
 - Narrator voice: **bm_daniel** (British male, "warm, regular-guy").
@@ -20,22 +25,29 @@ The deep "why" behind every setting lives in
 ## How to run
 
 ```sh
-# Full audiobook  ->  a_great_iniquity_<voice>.m4b   (resumable; ~40 min cold)
+# Synth + master + time -> writes audio/*.m4a + timing.<version>.json into
+# the reader bundle's build/ folder, beside segments.<version>.json.
+# Resumable: re-running skips any sentence whose WAV is already cached in
+# wav_full_<voice>/. No --dry mode — every run synthesizes for real; there is
+# no flag that previews structure without producing audio.
 python3 build_audiobook.py            # defaults to bm_daniel
-python3 build_audiobook.py --dry      # show chapter/sentence structure, no audio
 
 # Audition voices on the 3 hardest sentences  ->  audition_<voice>.wav
 python3 audition.py
-
-# Reshape punctuation + split over-long sentences  (chapters/ -> chapters_flow/)
-# The build reads chapters_flow/, so regenerate it with --split-long after editing chapters/.
-python3 flow_preprocess.py --split-long 45
 ```
 
 Requires `kokoro-tts-tool`, `ffmpeg`, `ffprobe` (and `espeak-ng`). The build
-reads `chapters_flow/`, synthesizes one WAV per sentence (cached in
-`wav_full_<voice>/`, so re-runs only redo what changed), splices in pauses,
-masters, adds chapter markers, and muxes the M4B with `+faststart`.
+reads `segments.<version>.json` from the reader bundle (the text-shaping
+rules live in the main repo's `reader/speech.py` + `reader/segment.py`, which
+own the final speech text) and only does audio: synth each clip, splice in
+pauses, master, write one `.m4a` per section + `timing.<version>.json`.
+
+**`chapters/`, `chapters_flow/`, and `flow_preprocess.py` are not read by
+this build** — a leftover from an earlier version of the pipeline, before it
+moved to reading segments.json directly. They're kept in sync by hand as a
+convenience (plain-text reference, and Kokoro voice audition input for
+`audition.py`), but editing them alone does nothing to the actual audio; the
+source of truth is the bundle's `.md` in the main Tolstoy repo.
 
 > Sideloaded audiobooks do **not** iCloud-sync. To get the `.m4b` onto a phone:
 > AirDrop → Files → Share → Copy to Books (or Finder cable sync).
@@ -43,11 +55,11 @@ masters, adds chapter markers, and muxes the M4B with `+faststart`.
 ## Layout
 
 ```
-build_audiobook.py     the builder (full book; the one you run)
-flow_preprocess.py     punctuation reshaping for cleaner Kokoro phrasing
+build_audiobook.py     the builder (reads segments.json; the one you run)
+flow_preprocess.py     punctuation reshaping — not read by the build (see above)
 audition.py            render the 3 problem sentences in any set of voices
-chapters/              source narration text, one file per section (ch00..ch09)
-chapters_flow/         chapters/ after flow_preprocess — what the build narrates
+chapters/              plain-text reference copy, one file per section (ch00..ch09) — not read by the build
+chapters_flow/         chapters/ after flow_preprocess — not read by the build
 wav_full_bm_daniel/    per-sentence audio cache (gitignored; resume lives here)
 _resources/            scratch reference audio (gitignored)
 IDEAS.md               parked feature ideas (read-along)
@@ -58,9 +70,10 @@ scripts + chapter text.
 
 ## Open / next
 
-- **Semicolons.** The build narrates `chapters_flow/` (George's semicolons
-  rewritten to periods/commas). Now that phrasing is good, worth testing whether
-  we can narrate the original text (semicolons intact) and retire that step.
+- **Semicolons.** The bundle's speech text (George's semicolons rewritten to
+  periods/commas — now in `reader/speech.py`, main repo) is what gets narrated.
+  Now that phrasing is good, worth testing whether we can narrate the original
+  text (semicolons intact) and retire that rewrite.
 - ~~**Short-sentence pitch wobble**~~ — done: the build merges very short
   sentences (and Part headers) into a neighbour so they don't get synthesized
   alone. See `merge_short` in `build_audiobook.py`.
