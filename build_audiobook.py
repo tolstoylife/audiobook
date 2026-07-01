@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """
-Build the full chaptered, mastered M4B of "A Great Iniquity".
+Build the mastered, per-section read-along audio of "A Great Iniquity".
 
 Pipeline and findings: README.md (this folder) and ../../docs/audiobook-pipeline.md.
   - voice bm_daniel, synthesized PER SENTENCE via `synthesize`
     (NOT `infinite` — its streaming step mangled long-sentence endings; an A/B
      on ch02 confirmed `synthesize` lands sentence endings cleanly)
-  - sentence / paragraph / chapter pauses, mastered, chapter markers,
-    M4B muxed with +faststart (iOS Books refuses the file without it)
+  - sentence / paragraph / chapter pauses, mastered, one .m4a per section
+    (no whole-book M4B mux — see the ponytail note above main())
 
-Reads chapters_flow/ (flow-preprocessed text). Resumable: re-running skips
-sentences whose WAV already exists.
+Reads segments.<version>.json from the reader bundle (SEG_JSON env var, or
+the-great-sin's segments.en-1905.json by default). Resumable: re-running
+skips sentences whose WAV already exists.
 
-  python3 build_audiobook.py [voice] [--dry]
+  python3 build_audiobook.py [voice]
 Requires: kokoro-tts-tool, ffmpeg, ffprobe.
 """
 import subprocess, os, re, sys, json
