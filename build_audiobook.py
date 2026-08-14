@@ -32,8 +32,8 @@ MIN_INTERNAL_SIL = 0.06  # a quiet run this long counts as a pause worth padding
 SIL_DBFS  = -35.0 # amplitude below this (rel. int16 full scale) is "silence" (measured: stable band)
 BITRATE  = "128k"
 SR       = 24000  # Kokoro's native rate
-CACHE    = f"wav_full_{VOICE}"         # raw per-sentence synth wavs — never mutated
-PADDED   = f"wav_full_{VOICE}_pad"     # derived: padded clips + build scratch (regenerable)
+CACHE    = f"wav_full_{VOICE}"         # base; main() appends /<work> — raw synth wavs, never mutated
+PADDED   = f"wav_full_{VOICE}_pad"     # base; main() appends /<work> — padded clips + scratch (regenerable)
 MASTER   = "highpass=f=70,deesser=i=0.4,loudnorm=I=-19:TP=-2:LRA=7"
 
 # The text-shaping rules (flow fixes, pronunciation respellings, sentence split,
@@ -165,6 +165,10 @@ def main():
     timing_path = f"{out_dir}/timing.{json.load(open(seg_path, encoding='utf-8'))['version']}.json"
 
     seg = json.load(open(seg_path, encoding="utf-8"))
+    # Per-work cache subfolders: every work numbers its sentences p-1-1-s1…, so a
+    # flat shared cache would reuse one work's clip for another's identical ID.
+    global CACHE, PADDED
+    CACHE, PADDED = f"{CACHE}/{seg['work']}", f"{PADDED}/{seg['work']}"
     clips = iter_clips(seg)
     os.makedirs(CACHE, exist_ok=True)
     os.makedirs(PADDED, exist_ok=True)
