@@ -16,16 +16,24 @@ skips sentences whose WAV already exists.
   python3 build_audiobook.py [voice]
 Requires: kokoro-tts-tool, ffmpeg, ffprobe.
 """
-import subprocess, os, re, sys, json
+import subprocess, os, re, sys, json, wave
+import numpy as np
 
 ARGS     = [a for a in sys.argv[1:] if not a.startswith("--")]
 VOICE    = ARGS[0] if ARGS else "bm_daniel"
 SENT_GAP = 0.45   # pause between sentences within a paragraph
 PARA_GAP = 0.85   # pause between paragraphs (most end on a George quote — Johan wanted longer)
 CHAP_GAP = 2.0    # pause between Parts (research: section breaks ~2–2.5s; clearly > paragraph)
+# Kokoro bakes a fixed ~0.14s pause at commas/dashes inside a sentence and exposes
+# no dial for it. To lengthen those we post-process each synth wav: find the quiet
+# runs *inside* the sentence and splice a little more silence into each (Option B).
+PAUSE_PAD = 0.02  # extra silence added at each internal comma/clause pause (s) — tune by ear
+MIN_INTERNAL_SIL = 0.06  # a quiet run this long counts as a pause worth padding (s)
+SIL_DBFS  = -35.0 # amplitude below this (rel. int16 full scale) is "silence" (measured: stable band)
 BITRATE  = "128k"
 SR       = 24000  # Kokoro's native rate
-CACHE    = f"wav_full_{VOICE}"
+CACHE    = f"wav_full_{VOICE}"         # raw per-sentence synth wavs — never mutated
+PADDED   = f"wav_full_{VOICE}_pad"     # derived: padded clips + build scratch (regenerable)
 MASTER   = "highpass=f=70,deesser=i=0.4,loudnorm=I=-19:TP=-2:LRA=7"
 
 # The text-shaping rules (flow fixes, pronunciation respellings, sentence split,
@@ -66,6 +74,56 @@ def build_timeline(clips, duration_of):
         out[c["id"]] = {"section": c["section"], "begin": begin, "end": end}
         cum = end + c["gap_after"]
     return {"clips": out}
+
+# ── Internal-pause padding (Option B): the other arithmetic worth a test ───────
+def splice_pads(x, sr):
+    """Return int16 samples `x` with PAUSE_PAD of silence added inside each internal
+    (non-edge) quiet run >= MIN_INTERNAL_SIL. Reads nothing, mutates nothing — pure,
+    so a re-run always rebuilds from the raw clip and can never double-pad. Edge
+    silence is left alone; it belongs to the between-clip gaps the builder adds."""
+    frame = int(0.010 * sr)                       # 10 ms envelope window
+    nf = len(x) // frame
+    if nf == 0 or PAUSE_PAD <= 0:
+        return x
+    env = np.abs(x[:nf * frame].reshape(nf, frame).astype(np.int32)).max(axis=1)
+    silent = env < 32767 * 10 ** (SIL_DBFS / 20)
+    minf = max(1, round(MIN_INTERNAL_SIL * sr / frame))
+    pad = np.zeros(round(PAUSE_PAD * sr), dtype=x.dtype)
+    parts, prev, i = [], 0, 0
+    while i < nf:
+        if not silent[i]:
+            i += 1; continue
+        j = i
+        while j < nf and silent[j]:
+            j += 1
+        if i > 0 and j < nf and (j - i) >= minf:  # internal, long enough → pad its middle
+            mid = ((i + j) // 2) * frame
+            parts.append(x[prev:mid]); parts.append(pad); prev = mid
+        i = j
+    parts.append(x[prev:])
+    return np.concatenate(parts)
+
+def pad_clip(raw_wav, out_wav):
+    """Rebuild out_wav from raw_wav with internal pauses lengthened (always from raw)."""
+    w = wave.open(raw_wav, "rb"); sr, n = w.getframerate(), w.getnframes()
+    x = np.frombuffer(w.readframes(n), dtype=np.int16); w.close()
+    out = np.ascontiguousarray(splice_pads(x, sr))
+    ww = wave.open(out_wav, "wb")
+    ww.setnchannels(1); ww.setsampwidth(2); ww.setframerate(sr)
+    ww.writeframes(out.tobytes()); ww.close()
+
+def _selftest():
+    sr = 24000
+    tone = (np.sin(np.arange(int(0.5 * sr)) * 0.2) * 8000).astype(np.int16)
+    gap  = np.zeros(int(0.10 * sr), dtype=np.int16)               # 100 ms internal pause
+    internal = np.concatenate([tone, gap, tone])
+    assert len(splice_pads(internal, sr)) - len(internal) == round(PAUSE_PAD * sr), "one internal pad expected"
+    edged = np.concatenate([np.zeros(int(0.2 * sr), dtype=np.int16), tone,
+                            np.zeros(int(0.2 * sr), dtype=np.int16)])
+    assert len(splice_pads(edged, sr)) == len(edged), "edge silence must not be padded"
+    tiny = np.concatenate([tone, np.zeros(int(0.03 * sr), dtype=np.int16), tone])  # 30ms < min
+    assert len(splice_pads(tiny, sr)) == len(tiny), "sub-threshold gap must not be padded"
+    print(f"selftest ok: internal +{round(PAUSE_PAD*1000)}ms, edges & <{round(MIN_INTERNAL_SIL*1000)}ms untouched")
 
 # ── I/O helpers (untested side-effects, same as before) ────────────────────────
 def run(cmd, **kw): subprocess.run(cmd, check=True, capture_output=True, text=True, **kw)
@@ -109,17 +167,21 @@ def main():
     seg = json.load(open(seg_path, encoding="utf-8"))
     clips = iter_clips(seg)
     os.makedirs(CACHE, exist_ok=True)
+    os.makedirs(PADDED, exist_ok=True)
     os.makedirs(audio_dir, exist_ok=True)
 
-    # 1) synth every clip so durations are known, then compute the timeline
+    # 1) synth every clip (raw cache), then rebuild each with internal pauses padded.
+    #    Padding is fast + always from raw, so it re-runs cleanly after a PAUSE_PAD tweak.
     for c in clips:
         synth_clip(c)
-    timing = build_timeline(clips, duration_of=lambda cid: dur(f"{CACHE}/{cid}.wav"))
+        pad_clip(f"{CACHE}/{c['id']}.wav", f"{PADDED}/{c['id']}.wav")
+    # 2) measure the *padded* clips so read-along timing matches what actually plays
+    timing = build_timeline(clips, duration_of=lambda cid: dur(f"{PADDED}/{cid}.wav"))
 
-    # 2) per-section mastered audio: concat clip wavs + their gap silences
+    # 3) per-section mastered audio: concat padded clip wavs + their gap silences
     sil = {}
     for g in {SENT_GAP, PARA_GAP, CHAP_GAP}:
-        sil[g] = f"{CACHE}/_sil_{int(g*1000)}.wav"; make_sil(sil[g], g)
+        sil[g] = f"{PADDED}/_sil_{int(g*1000)}.wav"; make_sil(sil[g], g)
 
     timing["audio"] = {}
     by_section = {}
@@ -127,10 +189,10 @@ def main():
         by_section.setdefault(c["section"], []).append(c)
 
     for sec_id, sec_clips in by_section.items():
-        listfile = f"{CACHE}/_concat_{sec_id}.txt"
+        listfile = f"{PADDED}/_concat_{sec_id}.txt"
         with open(listfile, "w") as f:
             for c in sec_clips:
-                f.write(f"file '{os.path.abspath(CACHE)}/{c['id']}.wav'\n")
+                f.write(f"file '{os.path.abspath(PADDED)}/{c['id']}.wav'\n")
                 if c["gap_after"] > 0:
                     f.write(f"file '{os.path.abspath(sil[c['gap_after']])}'\n")
         out_audio = f"{audio_dir}/{seg['work']}.{sec_id}.m4a"
@@ -143,4 +205,7 @@ def main():
     print(f">> wrote {timing_path} ({len(timing['clips'])} clips, {len(timing['audio'])} sections)")
 
 if __name__ == "__main__":
-    main()
+    if "--selftest" in sys.argv:
+        _selftest()
+    else:
+        main()
