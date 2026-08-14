@@ -42,6 +42,8 @@ rules live in the main repo's `reader/speech.py` + `reader/segment.py`, which
 own the final speech text) and only does audio: synth each clip, splice in
 pauses, master, write one `.m4a` per section + `timing.<version>.json`.
 
+There are two kinds of pause. The gaps *between* clips — sentence, paragraph and Part — are silences the build inserts itself (the `SENT_GAP` / `PARA_GAP` / `CHAP_GAP` constants; easy to change). The pauses at commas, dashes and semicolons *inside* a sentence are baked into Kokoro's audio (~0.14s, with no setting to change them), so to lengthen those the build post-processes each synthesized clip: it finds the quiet runs inside the sentence and splices a little more silence into each — `PAUSE_PAD` seconds per pause (tuned by ear to 0.02s, so a comma goes ~0.14s → ~0.16s). The padded clips are rebuilt from the raw cache on every run into `wav_full_<voice>_pad/`, so the raw voice cache is never touched and a re-run can't stack pause on pause. `python3 build_audiobook.py --selftest` checks the splice arithmetic.
+
 **`chapters/`, `chapters_flow/`, and `flow_preprocess.py` are not read by
 this build** — a leftover from an earlier version of the pipeline, before it
 moved to reading segments.json directly. They're kept in sync by hand as a
@@ -61,6 +63,7 @@ audition.py            render the 3 problem sentences in any set of voices
 chapters/              plain-text reference copy, one file per section (ch00..ch09) — not read by the build
 chapters_flow/         chapters/ after flow_preprocess — not read by the build
 wav_full_bm_daniel/    per-sentence audio cache (gitignored; resume lives here)
+wav_full_bm_daniel_pad/  padded clips: raw cache with internal comma pauses lengthened (gitignored; rebuilt each run)
 _resources/            scratch reference audio (gitignored)
 IDEAS.md               parked feature ideas (read-along)
 ```
