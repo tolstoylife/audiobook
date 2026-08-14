@@ -77,11 +77,8 @@ scripts + chapter text.
   periods/commas — now in `reader/speech.py`, main repo) is what gets narrated.
   Now that phrasing is good, worth testing whether we can narrate the original
   text (semicolons intact) and retire that rewrite.
-- ~~**Short-sentence pitch wobble**~~ — done: the build merges very short
-  sentences (and Part headers) into a neighbour so they don't get synthesized
-  alone. See `merge_short` in `build_audiobook.py`.
-- ~~**Proper-noun pronunciation**~~ — done by ear for the names that fumbled
-  (Labouchère, Radischeff, Yasnaya Poliana) via the `SUBS` dict in the build.
+- ~~**Short-sentence pitch wobble**~~ — done, but not in the build. The build-level `merge_short` was dropped because gluing clips there changed the sentence count and broke the 1-sentence-1-clip read-along mapping. A too-short leading clip is instead merged *upstream* in the segmenter — `MERGE_FORWARD` in the main repo's `reader/speech.py`, applied in `reader/segment.py` — before `segments.json` is written, so it arrives already spoken with its neighbour's context. Explicit by sentence id, not a word-count rule.
+- ~~**Proper-noun pronunciation**~~ — done by ear for the names that fumbled (Labouchère, Radischeff, Yasnaya Poliana); the respellings now live upstream as `_SUBS` in the main repo's `reader/speech.py`, so `segments.json` carries the final spoken form.
 - **Nightly pipeline** for the whole corpus: hash each work, regenerate only on
   change, Whisper transcript check, output to `_generated/audio/<work>.m4b`.
 - **Read-along** (synced text+audio) — see [IDEAS.md](IDEAS.md).
