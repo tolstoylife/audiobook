@@ -165,10 +165,10 @@ def main():
     timing_path = f"{out_dir}/timing.{json.load(open(seg_path, encoding='utf-8'))['version']}.json"
 
     seg = json.load(open(seg_path, encoding="utf-8"))
-    # Per-work cache subfolders: every work numbers its sentences p-1-1-s1…, so a
-    # flat shared cache would reuse one work's clip for another's identical ID.
+    # ⚠ cache per work AND edition: every work and every translation numbers its sentences p-1-1-s1…, so a shared folder would splice one edition's voice into another.
+    key = f"{seg['work']}.{seg['version']}"
     global CACHE, PADDED
-    CACHE, PADDED = f"{CACHE}/{seg['work']}", f"{PADDED}/{seg['work']}"
+    CACHE, PADDED = f"{CACHE}/{key}", f"{PADDED}/{key}"
     clips = iter_clips(seg)
     os.makedirs(CACHE, exist_ok=True)
     os.makedirs(PADDED, exist_ok=True)
@@ -199,11 +199,11 @@ def main():
                 f.write(f"file '{os.path.abspath(PADDED)}/{c['id']}.wav'\n")
                 if c["gap_after"] > 0:
                     f.write(f"file '{os.path.abspath(sil[c['gap_after']])}'\n")
-        out_audio = f"{audio_dir}/{seg['work']}.{sec_id}.m4a"
+        out_audio = f"{audio_dir}/{key}.{sec_id}.m4a"
         run(["ffmpeg","-y","-f","concat","-safe","0","-i",listfile,
              "-af",MASTER,"-ar","44100","-c:a","aac","-b:a",BITRATE,
              "-movflags","+faststart", out_audio])
-        timing["audio"][sec_id] = f"audio/{seg['work']}.{sec_id}.m4a"
+        timing["audio"][sec_id] = f"audio/{key}.{sec_id}.m4a"
 
     json.dump(timing, open(timing_path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
     print(f">> wrote {timing_path} ({len(timing['clips'])} clips, {len(timing['audio'])} sections)")
