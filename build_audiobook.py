@@ -123,6 +123,8 @@ def _selftest():
     assert len(splice_pads(edged, sr)) == len(edged), "edge silence must not be padded"
     tiny = np.concatenate([tone, np.zeros(int(0.03 * sr), dtype=np.int16), tone])  # 30ms < min
     assert len(splice_pads(tiny, sr)) == len(tiny), "sub-threshold gap must not be padded"
+    long = "a" * 350 + " — " + "b" * 350 + ", " + "c" * 100
+    assert [len(p) for p in chunk(long)] == [352, 351, 100], "long text splits after the dash and the comma"
     print(f"selftest ok: internal +{round(PAUSE_PAD*1000)}ms, edges & <{round(MIN_INTERNAL_SIL*1000)}ms untouched")
 
 # ── I/O helpers (untested side-effects, same as before) ────────────────────────
@@ -147,29 +149,43 @@ TOOL_PY = os.path.expanduser("~/.local/share/uv/tools/kokoro-tts-tool/bin/python
 FR_SYNTH = ("import sys, soundfile as sf; from kokoro_tts_tool.engine import KokoroEngine; e = KokoroEngine(); e.load(); "
             "s, sr = e._engine.create(sys.argv[1], voice=sys.argv[3], speed=1.0, lang='fr-fr'); sf.write(sys.argv[2], s, sr)")
 
+MAX_CHARS = 400   # ⚠ Kokoro crashes past ~510 phonemes (~400 characters of English); longer sentences are voiced in pieces
+
+def chunk(text):
+    """Split text over MAX_CHARS at the latest dash, semicolon, colon or comma that fits."""
+    if len(text) <= MAX_CHARS:
+        return [text]
+    for sep in (" — ", "; ", ": ", ", "):
+        cut = text.rfind(sep, 0, MAX_CHARS)
+        if cut > 0:
+            cut += len(sep.rstrip())
+            return [text[:cut]] + chunk(text[cut:].strip())
+    return [text]
+
 def synth_clip(clip):
     """Synthesize one clip's speech to a normalized mono wav, cached by segment ID."""
     wav = f"{CACHE}/{clip['id']}.wav"
     if not os.path.exists(wav):
         print(f">> synth {clip['id']}: {clip['speech'][:50]!r}")
-        parts = re.split(r"‹fr›(.*?)‹/fr›", clip["speech"])   # odd parts are French (reader/speech.py marks them)
-        if len(parts) == 1:
-            run(["kokoro-tts-tool","synthesize","--stdin","--output",wav,"--voice",VOICE],
-                input=clip["speech"] + "\n")
+        pieces = []   # (text, is_french); odd re.split parts are French (reader/speech.py marks them)
+        for i, text in enumerate(re.split(r"‹fr›(.*?)‹/fr›", clip["speech"])):
+            pieces += [(t, True)] if i % 2 else [(t, False) for t in chunk(text)]
+        pieces = [(t.strip(), fr) for t, fr in pieces if t.strip()]
+        if len(pieces) == 1 and not pieces[0][1]:
+            run(["kokoro-tts-tool","synthesize","--stdin","--output",wav,"--voice",VOICE], input=pieces[0][0] + "\n")
         else:
-            pieces = []
-            for i, text in enumerate(p.strip() for p in parts):
-                if not text: continue
-                piece = f"{wav}.{i}.wav"
-                if i % 2:   # ⚠ the CLI picks pronunciation rules from the voice name, so French goes straight to the engine
-                    run([TOOL_PY, "-c", FR_SYNTH, text, piece, VOICE])
+            files = []
+            for i, (text, fr) in enumerate(pieces):
+                f = f"{wav}.{i}.wav"
+                if fr:   # ⚠ the CLI picks pronunciation rules from the voice name, so French goes straight to the engine
+                    run([TOOL_PY, "-c", FR_SYNTH, text, f, VOICE])
                 else:
-                    run(["kokoro-tts-tool","synthesize","--stdin","--output",piece,"--voice",VOICE], input=text + "\n")
-                pieces.append(piece)
+                    run(["kokoro-tts-tool","synthesize","--stdin","--output",f,"--voice",VOICE], input=text + "\n")
+                files.append(f)
             lst = wav + ".txt"
-            open(lst, "w").write("".join(f"file '{os.path.abspath(p)}'\n" for p in pieces))
+            open(lst, "w").write("".join(f"file '{os.path.abspath(f)}'\n" for f in files))
             run(["ffmpeg","-y","-f","concat","-safe","0","-i",lst,"-c","copy",wav])
-            for p in pieces + [lst]: os.remove(p)
+            for f in files + [lst]: os.remove(f)
         norm = wav + ".n.wav"
         run(["ffmpeg","-y","-i",wav,"-ar",str(SR),"-ac","1","-c:a","pcm_s16le", norm])
         os.replace(norm, wav)
