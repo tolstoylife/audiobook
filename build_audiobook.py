@@ -143,13 +143,33 @@ def make_sil(path, sec):
 # needs per-section .m4a + timing.json, and the standalone .m4b is independent of
 # that contract. Rebuild it from the per-section concat lists if wanted.
 
+TOOL_PY = os.path.expanduser("~/.local/share/uv/tools/kokoro-tts-tool/bin/python")
+FR_SYNTH = ("import sys, soundfile as sf; from kokoro_tts_tool.engine import KokoroEngine; e = KokoroEngine(); e.load(); "
+            "s, sr = e._engine.create(sys.argv[1], voice=sys.argv[3], speed=1.0, lang='fr-fr'); sf.write(sys.argv[2], s, sr)")
+
 def synth_clip(clip):
     """Synthesize one clip's speech to a normalized mono wav, cached by segment ID."""
     wav = f"{CACHE}/{clip['id']}.wav"
     if not os.path.exists(wav):
         print(f">> synth {clip['id']}: {clip['speech'][:50]!r}")
-        run(["kokoro-tts-tool","synthesize","--stdin","--output",wav,"--voice",VOICE],
-            input=clip["speech"] + "\n")
+        parts = re.split(r"‹fr›(.*?)‹/fr›", clip["speech"])   # odd parts are French (reader/speech.py marks them)
+        if len(parts) == 1:
+            run(["kokoro-tts-tool","synthesize","--stdin","--output",wav,"--voice",VOICE],
+                input=clip["speech"] + "\n")
+        else:
+            pieces = []
+            for i, text in enumerate(p.strip() for p in parts):
+                if not text: continue
+                piece = f"{wav}.{i}.wav"
+                if i % 2:   # ⚠ the CLI picks pronunciation rules from the voice name, so French goes straight to the engine
+                    run([TOOL_PY, "-c", FR_SYNTH, text, piece, VOICE])
+                else:
+                    run(["kokoro-tts-tool","synthesize","--stdin","--output",piece,"--voice",VOICE], input=text + "\n")
+                pieces.append(piece)
+            lst = wav + ".txt"
+            open(lst, "w").write("".join(f"file '{os.path.abspath(p)}'\n" for p in pieces))
+            run(["ffmpeg","-y","-f","concat","-safe","0","-i",lst,"-c","copy",wav])
+            for p in pieces + [lst]: os.remove(p)
         norm = wav + ".n.wav"
         run(["ffmpeg","-y","-i",wav,"-ar",str(SR),"-ac","1","-c:a","pcm_s16le", norm])
         os.replace(norm, wav)
