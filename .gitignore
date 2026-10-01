@@ -17,3 +17,6 @@ _resources/
 __pycache__/
 
 _resources
+
+# Retired editions' audio, kept locally
+archive/
