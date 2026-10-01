@@ -169,7 +169,7 @@ def synth_clip(clip):
         print(f">> synth {clip['id']}: {clip['speech'][:50]!r}")
         pieces = []   # (text, is_french); odd re.split parts are French (reader/speech.py marks them)
         for i, text in enumerate(re.split(r"‹fr›(.*?)‹/fr›", clip["speech"])):
-            pieces += [(t, True)] if i % 2 else [(t, False) for t in chunk(text)]
+            pieces += [(text, True)] if i % 2 else [(t, False) for t in chunk(text)]
         pieces = [(t.strip(), fr) for t, fr in pieces if t.strip()]
         if len(pieces) == 1 and not pieces[0][1]:
             run(["kokoro-tts-tool","synthesize","--stdin","--output",wav,"--voice",VOICE], input=pieces[0][0] + "\n")
