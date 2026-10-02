@@ -146,9 +146,10 @@ def make_sil(path, sec):
 # that contract. Rebuild it from the per-section concat lists if wanted.
 
 TOOL_PY = os.path.expanduser("~/.local/share/uv/tools/kokoro-tts-tool/bin/python")
-FR_SYNTH = ("import sys, soundfile as sf; from kokoro_tts_tool.engine import KokoroEngine; e = KokoroEngine(); e.load(); "
-            "s, sr = e._engine.create(sys.argv[1], voice=sys.argv[3], speed=1.0, lang='fr-fr'); sf.write(sys.argv[2], s, sr)")
+FOREIGN_SYNTH = ("import sys, soundfile as sf; from kokoro_tts_tool.engine import KokoroEngine; e = KokoroEngine(); e.load(); "
+            "s, sr = e._engine.create(sys.argv[1], voice=sys.argv[3], speed=1.0, lang=sys.argv[4]); sf.write(sys.argv[2], s, sr)")
 
+LANGS = {"fr": "fr-fr", "de": "de"}   # speech.py marker → espeak pronunciation rules
 MAX_CHARS = 400   # ⚠ Kokoro crashes past ~510 phonemes (~400 characters of English); longer sentences are voiced in pieces
 
 def chunk(text):
@@ -167,18 +168,20 @@ def synth_clip(clip):
     wav = f"{CACHE}/{clip['id']}.wav"
     if not os.path.exists(wav):
         print(f">> synth {clip['id']}: {clip['speech'][:50]!r}")
-        pieces = []   # (text, is_french); odd re.split parts are French (reader/speech.py marks them)
-        for i, text in enumerate(re.split(r"‹fr›(.*?)‹/fr›", clip["speech"])):
-            pieces += [(text, True)] if i % 2 else [(t, False) for t in chunk(text)]
-        pieces = [(t.strip(), fr) for t, fr in pieces if t.strip()]
+        pieces = []   # (text, lang or None); reader/speech.py marks foreign passages ‹fr›…‹/fr›, ‹de›…‹/de›
+        parts = re.split(r"‹(fr|de)›(.*?)‹/\1›", clip["speech"])
+        for i in range(0, len(parts), 3):
+            pieces += [(t, None) for t in chunk(parts[i])]
+            if i + 2 < len(parts): pieces.append((parts[i + 2], LANGS[parts[i + 1]]))
+        pieces = [(t.strip(), lang) for t, lang in pieces if t.strip()]
         if len(pieces) == 1 and not pieces[0][1]:
             run(["kokoro-tts-tool","synthesize","--stdin","--output",wav,"--voice",VOICE], input=pieces[0][0] + "\n")
         else:
             files = []
-            for i, (text, fr) in enumerate(pieces):
+            for i, (text, lang) in enumerate(pieces):
                 f = f"{wav}.{i}.wav"
-                if fr:   # ⚠ the CLI picks pronunciation rules from the voice name, so French goes straight to the engine
-                    run([TOOL_PY, "-c", FR_SYNTH, text, f, VOICE])
+                if lang:   # ⚠ the CLI picks pronunciation rules from the voice name, so foreign passages go straight to the engine
+                    run([TOOL_PY, "-c", FOREIGN_SYNTH, text, f, VOICE, lang])
                 else:
                     run(["kokoro-tts-tool","synthesize","--stdin","--output",f,"--voice",VOICE], input=text + "\n")
                 files.append(f)
