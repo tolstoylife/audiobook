@@ -22,9 +22,9 @@ def test_build_timeline_resets_each_section():
     clips = iter_clips(SEG)
     timing = build_timeline(clips, duration_of=lambda _id: 1.0)  # every clip 1.0s
     c = timing["clips"]
-    # sec-1: heading 0-1, then SENT_GAP, then s1, then PARA_GAP, then s2
+    # sec-1: heading 0-1, then PARA_GAP, then s1, then PARA_GAP, then s2
     assert c["sec-1"] == {"section": "sec-1", "begin": 0.0, "end": 1.0}
-    assert c["p-1-1-s1"]["begin"] == round(1.0 + 0.45, 3)   # after heading + SENT_GAP
+    assert c["p-1-1-s1"]["begin"] == round(1.0 + 0.85, 3)   # after heading + PARA_GAP
     assert c["p-1-1-s2"]["begin"] > c["p-1-1-s1"]["end"]
     # section 2 audio file resets to 0
     assert c["sec-2"] == {"section": "sec-2", "begin": 0.0, "end": 1.0}

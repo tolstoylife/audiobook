@@ -50,7 +50,7 @@ def iter_clips(seg):
     clips = []
     for sec in seg["sections"]:
         clips.append({"id": sec["id"], "speech": sec["headingSpeech"],
-                      "gap_after": SENT_GAP, "section": sec["id"],
+                      "gap_after": PARA_GAP, "section": sec["id"],   # a heading gets the paragraph pause; at SENT_GAP "Preface" ran into "Ye shall…"
                       "is_section_start": True})
         for para in sec["paragraphs"]:
             sents = para["sentences"]
