@@ -150,8 +150,6 @@ FOREIGN_SYNTH = ("import sys, soundfile as sf; from kokoro_tts_tool.engine impor
             "s, sr = e._engine.create(sys.argv[1], voice=sys.argv[3], speed=1.0, lang=sys.argv[4]); sf.write(sys.argv[2], s, sr)")
 
 LANGS = {"fr": "fr-fr", "de": "de"}   # speech.py marker → espeak pronunciation rules
-LIST_GAP = 0.14   # silence between the items of a single-word list (‹br› cuts); Johan 2026-10-03: "much shorter" than 0.28 — tune by ear
-TRIM = "silenceremove=start_periods=1:start_threshold=-45dB,areverse,silenceremove=start_periods=1:start_threshold=-45dB,areverse"
 MAX_CHARS = 400   # ⚠ Kokoro crashes past ~510 phonemes (~400 characters of English); longer sentences are voiced in pieces
 
 def chunk(text):
@@ -170,40 +168,27 @@ def synth_clip(clip):
     wav = f"{CACHE}/{clip['id']}.wav"
     if not os.path.exists(wav):
         print(f">> synth {clip['id']}: {clip['speech'][:50]!r}")
-        pieces = []   # (text, lang or None, gap after); reader/speech.py marks foreign passages ‹fr›…‹/fr›, ‹de›…‹/de›, and list commas ‹br›
-        segs = clip["speech"].split("‹br›")
-        for si, seg in enumerate(segs):
-            mine = []
-            parts = re.split(r"‹(fr|de)›(.*?)‹/\1›", seg)
-            for i in range(0, len(parts), 3):
-                mine += [(t, None) for t in chunk(parts[i])]
-                if i + 2 < len(parts): mine.append((parts[i + 2], LANGS[parts[i + 1]]))
-            mine = [(t.strip(), lang, False) for t, lang in mine if t.strip()]
-            if mine and si < len(segs) - 1: mine[-1] = mine[-1][:2] + (True,)
-            pieces += mine
+        pieces = []   # (text, lang or None); reader/speech.py marks foreign passages ‹fr›…‹/fr›, ‹de›…‹/de›
+        parts = re.split(r"‹(fr|de)›(.*?)‹/\1›", clip["speech"])
+        for i in range(0, len(parts), 3):
+            pieces += [(t, None) for t in chunk(parts[i])]
+            if i + 2 < len(parts): pieces.append((parts[i + 2], LANGS[parts[i + 1]]))
+        pieces = [(t.strip(), lang) for t, lang in pieces if t.strip()]
         if len(pieces) == 1 and not pieces[0][1]:
             run(["kokoro-tts-tool","synthesize","--stdin","--output",wav,"--voice",VOICE], input=pieces[0][0] + "\n")
         else:
-            files, listy = [], len(segs) > 1
-            if listy:
-                gap = f"{wav}.gap.wav"
-                run(["ffmpeg","-y","-f","lavfi","-i",f"anullsrc=r={SR}:cl=mono","-t",str(LIST_GAP),"-c:a","pcm_s16le",gap])
-            for i, (text, lang, br) in enumerate(pieces):
+            files = []
+            for i, (text, lang) in enumerate(pieces):
                 f = f"{wav}.{i}.wav"
                 if lang:   # ⚠ the CLI picks pronunciation rules from the voice name, so foreign passages go straight to the engine
                     run([TOOL_PY, "-c", FOREIGN_SYNTH, text, f, VOICE, lang])
                 else:
                     run(["kokoro-tts-tool","synthesize","--stdin","--output",f,"--voice",VOICE], input=text + "\n")
-                if listy:   # trim each piece's edge silence so the list gap is exactly LIST_GAP
-                    tr = f + ".t.wav"
-                    run(["ffmpeg","-y","-i",f,"-af",TRIM,"-ar",str(SR),"-ac","1","-c:a","pcm_s16le",tr])
-                    os.replace(tr, f)
                 files.append(f)
-                if br: files.append(gap)
             lst = wav + ".txt"
             open(lst, "w").write("".join(f"file '{os.path.abspath(f)}'\n" for f in files))
             run(["ffmpeg","-y","-f","concat","-safe","0","-i",lst,"-c","copy",wav])
-            for f in set(files) | {lst}: os.remove(f)
+            for f in files + [lst]: os.remove(f)
         norm = wav + ".n.wav"
         run(["ffmpeg","-y","-i",wav,"-ar",str(SR),"-ac","1","-c:a","pcm_s16le", norm])
         os.replace(norm, wav)
